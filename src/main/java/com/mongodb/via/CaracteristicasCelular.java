@@ -29,10 +29,10 @@ public class CaracteristicasCelular {
         try {
             FindIterable<Document> result = getConexaoMongoDb(args);
 
-            geraCsvParaCelulares(result, "celulares-processador.csv" , "Processador");
-            geraCsvParaCelulares(result, "celulares-armazenamento.csv", "Armazenamento");
-            geraCsvParaCelulares(result, "celulares-memoria.csv", "Memoria");
-            geraCsvParaCelulares(result, "celulares-tela.csv", "Tela");
+           // geraCsvParaCelulares(result, "celulares-processador.csv" , "Processador");
+           // geraCsvParaCelulares(result, "celulares-armazenamento.csv", "Armazenamento");
+           // geraCsvParaCelulares(result, "celulares-memoria.csv", "Memoria");
+           // geraCsvParaCelulares(result, "celulares-tela.csv", "Tela");
             geraCsvParaCelulares(result, "celulares-camera.csv", "Camera");
 
             System.out.println("Finalizou");
@@ -117,6 +117,8 @@ public class CaracteristicasCelular {
                         sb.append("\"").append("[").append(valor).append("]").append("\"").append(",");
                     }
                     if (sb.length() > 0)
+                        if (nomeDaCaracteristica.equals("Resolucao-camera-traseira"))
+                            return ajustaTrechoDescricao("Câmera", sb.toString());
                         return sb.substring(0, sb.length() - 1);
                 }
             }
@@ -156,8 +158,10 @@ public class CaracteristicasCelular {
             caracteristica = "GB";
         else if (tipoDoDado.equals("Memoria"))
             caracteristica = "RAM";
-        else if (tipoDoDado.equals("Processador") || tipoDoDado.equals("Câmera") )
+        else if (tipoDoDado.equals("Processador"))
             caracteristica = tipoDoDado;
+        else if (tipoDoDado.equals("Câmera"))
+            caracteristica = "MP";
         else if (tipoDoDado.equals("Tela"))
             caracteristica = "\"";
         else
@@ -165,37 +169,100 @@ public class CaracteristicasCelular {
 
         char caractere;
         int start = nome.indexOf(caracteristica);
+        if (tipoDoDado.equals("Tela") && start == -1) {
+            caracteristica = "”";
+            start = nome.indexOf(caracteristica);
+            if (start == -1) {
+                caracteristica = "'";
+                start = nome.indexOf(caracteristica);
+            }
+
+            if (start == -1) {
+                caracteristica = "’";
+                start = nome.indexOf(caracteristica);
+            }
+        } else if (tipoDoDado.equals("Armazenamento") && start == -1){
+            caracteristica = "TB";
+            start = nome.indexOf(caracteristica);
+            if (start == -1) {
+                caracteristica = "MB";
+                start = nome.indexOf(caracteristica);
+            }
+        }
+
         if (start > -1) {
             if (caracteristica.equals("GB")) {
+                int inicio;
                 for (int i = start - 1; i >= 0; i--) {
                     caractere = nome.charAt(i);
-                    if (!Character.isDigit(caractere)) {
-                        return nome.substring(i + 1, start + 2);
+                    inicio = i + 1;
+                    if (i == start - 1) {
+                        inicio++;
+                    }
+                    if (!Character.isDigit(caractere) ) {
+                        return nome.substring(inicio, start + 2);
                     }
                 }
 
                 return nome.substring(start);
-            } else if (caracteristica.equals("RAM") ) {
+            } else if (caracteristica.equals("RAM")) {
                 for (int i = start; i>=0; i--) {
                     caractere = nome.charAt(i);
                     if (Character.isDigit(caractere)) {
                         return nome.substring(i, i + 3);
                     }
                 }
-            } else if (caracteristica.equals("\"")) {
+            } else if (caracteristica.equals("\"") ||
+                    caracteristica.equals("”") ||
+                    caracteristica.equals("'") ||
+                    caracteristica.equals("’")) {
                 for (int i = start-1; i>=0; i--) {
                     caractere = nome.charAt(i);
-                    if (!Character.isDigit(caractere) && Character.compare(caractere, '.') != 0) {
-                        return nome.substring(i+1, start+1);
+                    if (!Character.isDigit(caractere) && caractere != '.' && caractere != ',') {
+                        if (caracteristica.equals("'") || caracteristica.equals("’"))
+                            return nome.substring(i+1, start+2);
+                        else
+                            return nome.substring(i+1, start+1);
                     }
                 }
+            } else {
+                if (tipoDoDado.equals("Câmera"))
+                    start = -1;
 
-
-            }else{
-               return nome.substring(start);
+               return ajustaTrechoDescricao(tipoDoDado, nome.substring(start+tipoDoDado.length()+1));
             }
         }
         return "";
+    }
+
+    private static String ajustaTrechoDescricao(String tipoDoDado, String descricao) {
+        StringBuilder sb = new StringBuilder(128);
+
+        if (tipoDoDado.equals("Câmera")) {
+            int start = descricao.indexOf("MP");
+
+            for (int i = start; i >= 0; i--) {
+                char digito = descricao.charAt(i);
+                if (Character.isDigit(digito) ){
+                    sb.insert(0, digito);
+                } else if (Character.isSpaceChar(digito)) {
+                    if (start != i)
+                        break;
+                } else if (digito == '.' || digito == ',') {
+                    sb.insert(0, digito);
+                }
+            }
+
+            if (sb.length() > 0 ) {
+                descricao = sb.append("MP").toString();
+                if (!Character.isDigit(descricao.charAt(0)))
+                    descricao = descricao.substring(1, sb.length());
+            } else {
+                descricao = "";
+            }
+        }
+
+        return descricao;
     }
 
     private static void printline(OutputStream out, Long conjuntoSku, Integer tipoProduto, String... values)
