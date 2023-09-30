@@ -29,10 +29,10 @@ public class CaracteristicasCelular {
         try {
             FindIterable<Document> result = getConexaoMongoDb(args);
 
-           // geraCsvParaCelulares(result, "celulares-processador.csv" , "Processador");
-           // geraCsvParaCelulares(result, "celulares-armazenamento.csv", "Armazenamento");
-           // geraCsvParaCelulares(result, "celulares-memoria.csv", "Memoria");
-           // geraCsvParaCelulares(result, "celulares-tela.csv", "Tela");
+            geraCsvParaCelulares(result, "celulares-processador.csv" , "Processador");
+            geraCsvParaCelulares(result, "celulares-armazenamento.csv", "Armazenamento");
+            geraCsvParaCelulares(result, "celulares-memoria.csv", "Memoria");
+            geraCsvParaCelulares(result, "celulares-tela.csv", "Tela");
             geraCsvParaCelulares(result, "celulares-camera.csv", "Camera");
 
             System.out.println("Finalizou");
