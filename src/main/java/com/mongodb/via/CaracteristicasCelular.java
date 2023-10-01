@@ -19,15 +19,14 @@ public class CaracteristicasCelular {
 
     private static final char SEPARATOR_COLUMN = ';';
 
-    private static final char SEPARATOR_SKUS = ',';
-
     private static final String LINE_SEPARATOR = System.lineSeparator();
 
-    private static boolean isPrimeiraLinha = true;
+    private static boolean isPrimeiraLinha;
 
     public static void main(String[] args)  {
         try {
-            FindIterable<Document> result = getConexaoMongoDb(args);
+            MongoClient mongoConnection = MongoConnection.createConnection(args);
+            FindIterable<Document> result = getDadosCelularesMongo(mongoConnection);
 
             geraCsvParaCelulares(result, "celulares-processador.csv" , "Processador");
             geraCsvParaCelulares(result, "celulares-armazenamento.csv", "Armazenamento");
@@ -35,25 +34,28 @@ public class CaracteristicasCelular {
             geraCsvParaCelulares(result, "celulares-tela.csv", "Tela");
             geraCsvParaCelulares(result, "celulares-camera.csv", "Camera");
 
+            mongoConnection.close();
+
             System.out.println("Finalizou");
         } catch (Exception ex) {
             ex.printStackTrace();
         }
     }
 
-    private static FindIterable<Document> getConexaoMongoDb(String[] args) {
-        MongoClient mongoStress = MongoConnection.createConnection(args);
-        MongoDatabase catalogo = mongoStress.getDatabase("catalogo");
+    private static FindIterable<Document> getDadosCelularesMongo(MongoClient mongoConnection) {
+        MongoDatabase catalogo = mongoConnection.getDatabase("catalogo");
         Document filter = Document.parse("{\"slugCategoria\":\"Smartphones-Categoria\"}");
         Document projection = Document.parse("{\"nome\":1, \"caracteristicas\":1, \"situacao\": 1}");
 
         return catalogo.getCollection("produtos").find(filter).projection(projection);
     }
 
-    private static void geraCsvParaCelulares(FindIterable<Document> result, String nomeCsv, String TipoDoDado) throws IOException {
+    private static void geraCsvParaCelulares(FindIterable<Document> result, String nomeCsv, String tipoDoDado) throws IOException {
         File csv = new File(nomeCsv);
         System.out.println("Arquivo: " + csv.getAbsolutePath());
         FileOutputStream out = new FileOutputStream(csv);
+
+        isPrimeiraLinha = true;
 
         MongoCursor<Document> cursor = result.cursor();
         while (cursor.hasNext()) {
@@ -66,12 +68,13 @@ public class CaracteristicasCelular {
                     registroId.getLong("sku"),
                     registroId.getInteger("tipoProduto"),
                     situacao,
-                    processador(nome, TipoDoDado),
-                    processador(caracteristicas, TipoDoDado),
+                    retornaNomeDaCaracteristica(nome, tipoDoDado),
+                    retornaNomeDaCaracteristica(caracteristicas, tipoDoDado),
                     nome
             );
         }
         cursor.close();
+        out.close();
     }
 
     private static String buscaSituacao(String situacao) {
@@ -87,7 +90,7 @@ public class CaracteristicasCelular {
         }
     }
 
-    private static String processador(List<Document> caracteristicas, String tipoDoDado) {
+    private static String retornaNomeDaCaracteristica(List<Document> caracteristicas, String tipoDoDado) {
         switch (tipoDoDado) {
             case "Processador":
                 return localizaNomeDaCaracteristica("Processador", caracteristicas);
@@ -116,10 +119,12 @@ public class CaracteristicasCelular {
 
                         sb.append("\"").append("[").append(valor).append("]").append("\"").append(",");
                     }
-                    if (sb.length() > 0)
-                        if (nomeDaCaracteristica.equals("Resolucao-camera-traseira"))
-                            return ajustaTrechoDescricao("Câmera", sb.toString());
+                    if (sb.length() > 0) {
+                        if (nomeDaCaracteristica.equals("Resolucao-camera-traseira") || nomeDaCaracteristica.equals("Memoria-interna-") || nomeDaCaracteristica.equals("Caracteristicas-Gerais")  ) {
+                            return ajustaTrechoDescricao(nomeDaCaracteristica, sb.toString());
+                        }
                         return sb.substring(0, sb.length() - 1);
+                    }
                 }
             }
         return "";
@@ -134,7 +139,7 @@ public class CaracteristicasCelular {
         return slug.toLowerCase().contains("camera") && slug.toLowerCase().contains("traseira");
     }
 
-    private static String processador(String nome, String tipoDoDado) {
+    private static String retornaNomeDaCaracteristica(String nome, String tipoDoDado) {
         switch (tipoDoDado)  {
             case "Processador":
                 return retornaSubstringDaCaracteristica(nome, "Processador");
@@ -191,27 +196,31 @@ public class CaracteristicasCelular {
         }
 
         if (start > -1) {
-            if (caracteristica.equals("GB")) {
-                int inicio;
-                for (int i = start - 1; i >= 0; i--) {
-                    caractere = nome.charAt(i);
-                    inicio = i + 1;
-                    if (i == start - 1) {
-                        inicio++;
-                    }
-                    if (!Character.isDigit(caractere) ) {
-                        return nome.substring(inicio, start + 2);
-                    }
-                }
-
-                return nome.substring(start);
+            if (caracteristica.equals("GB") || caracteristica.equals("TB") || caracteristica.equals("MB")) {
+                return extraiTamanhoArmazenamento(start, nome);
             } else if (caracteristica.equals("RAM")) {
-                for (int i = start; i>=0; i--) {
-                    caractere = nome.charAt(i);
-                    if (Character.isDigit(caractere)) {
-                        return nome.substring(i, i + 3);
+                int indiceRAM = retornaIndiceRam(nome);
+                String ram = null;
+                if (indiceRAM > 0){
+                    for (int i = start; i>=0; i--) {
+                        caractere = nome.charAt(i);
+                        if (Character.isDigit(caractere)) {
+                            ram = nome.substring(i, i + 3);
+                            break;
+                        }
+                    }
+                } else {
+                    for (int i = start; i < nome.length(); i++) {
+                        caractere = nome.charAt(i);
+                        if (Character.isDigit(caractere)) {
+                            ram = nome.substring(i, i + 3);
+                            break;
+                        }
                     }
                 }
+                assert ram != null;
+                return ram.replace(',', 'B');
+
             } else if (caracteristica.equals("\"") ||
                     caracteristica.equals("”") ||
                     caracteristica.equals("'") ||
@@ -225,9 +234,24 @@ public class CaracteristicasCelular {
                             return nome.substring(i+1, start+1);
                     }
                 }
+            } else if (caracteristica.equals("Processador")) {
+                int end = nome.toLowerCase().indexOf("ghz", start);
+
+                if (end != -1) {
+                    end = end + 3;
+                } else {
+                    end = nome.toLowerCase().indexOf("core", start);
+
+                    if (end != -1)
+                        end = end + 4;
+                    else
+                        end = nome.length();
+                }
+
+                return nome.substring(start+tipoDoDado.length()+1, end).replace("de ", "");
+
             } else {
-                if (tipoDoDado.equals("Câmera"))
-                    start = -1;
+                start = -1;
 
                return ajustaTrechoDescricao(tipoDoDado, nome.substring(start+tipoDoDado.length()+1));
             }
@@ -235,10 +259,41 @@ public class CaracteristicasCelular {
         return "";
     }
 
+    private static int retornaIndiceRam(String nome) {
+        int indiceRAM = nome.indexOf("RAM");
+        char caractere;
+
+        for (int i = indiceRAM; i >= 0; i--) {
+            caractere = nome.charAt(i);
+
+            if ((caractere == 'G') || (caractere == 'M' && nome.charAt(i+1) == 'B')){
+                return indiceRAM - i > 7 ? 0 : 1;
+            }
+        }
+
+        return 1;
+    }
+
     private static String ajustaTrechoDescricao(String tipoDoDado, String descricao) {
         StringBuilder sb = new StringBuilder(128);
+        String tipo;
 
-        if (tipoDoDado.equals("Câmera")) {
+        switch (tipoDoDado) {
+            case "Resolucao-camera-traseira":
+                tipo = "Câmera";
+                break;
+            case "Memoria-interna-":
+                tipo = "Armazenamento";
+                break;
+            case "Caracteristicas-Gerais":
+                tipo = "Tela";
+                break;
+            default:
+                tipo = tipoDoDado;
+                break;
+        }
+
+        if (tipo.equals("Câmera")) {
             int start = descricao.indexOf("MP");
 
             for (int i = start; i >= 0; i--) {
@@ -260,9 +315,64 @@ public class CaracteristicasCelular {
             } else {
                 descricao = "";
             }
+        } else if (tipo.equals("Armazenamento")) {
+            int start = descricao.indexOf("GB");
+            if (start == -1) {
+                start = descricao.indexOf("TB");
+                if (start == -1)
+                    start = descricao.indexOf("MB");
+            }
+
+            descricao = extraiTamanhoArmazenamento(start, descricao);
+        } else if (tipo.equals("Tela")){
+            descricao = removeTag(descricao);
+            descricao = descricao.replace("-", "");
         }
 
         return descricao;
+    }
+
+    private static String removeTag(String descricao) {
+        int indiceTagInicial = descricao.indexOf("<");
+        int indiceTagFinal = descricao.indexOf(">");
+
+        if (indiceTagInicial != -1){
+            String parteAntes = descricao.substring(0, indiceTagInicial);
+
+            String parteDepois = descricao.substring(indiceTagFinal+1);
+
+            return removeTag(parteAntes + parteDepois);
+        }
+
+        return descricao;
+    }
+
+    private static String extraiTamanhoArmazenamento(int start, String nome) {
+        if (start == -1){
+            return "";
+        }
+
+        int inicio;
+        int espacos = 0;
+        char caractere;
+        for (int i = start - 1; i >= 0; i--) {
+            caractere = nome.charAt(i);
+
+            if (Character.isSpaceChar(caractere) && espacos == 0 && i == start - 1){
+                espacos++;
+                continue;
+            }
+
+            inicio = i + 1;
+            if (i == start - 1) {
+                inicio++;
+            }
+            if (!Character.isDigit(caractere) ) {
+                return nome.substring(inicio, start + 2);
+            }
+        }
+
+        return nome.substring(start);
     }
 
     private static void printline(OutputStream out, Long conjuntoSku, Integer tipoProduto, String... values)
